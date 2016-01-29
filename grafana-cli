@@ -1,0 +1,218 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict; 
+
+use Readonly;
+use JSON;
+use Getopt::Long qw(:config no_ignore_case);
+use Data::Dumper;
+use Carp;
+use LWP::UserAgent;
+use Switch;
+
+# Usage info
+Readonly my $USAGE => <<"END_USAGE";
+Usage: $0 [OPTION]
+END_USAGE
+
+my $grafana_user = undef;
+my $grafana_pass = undef;
+
+
+# Help output
+
+Readonly my $HELP => <<"END_HELP";
+
+OPTIONS:
+  -c, --credentials=<filename> 
+  -h, --help                Print help information
+
+COMMANDS
+  get_org                    Get the current organisation for the current user
+  rename_current_org <name>  Rename the current organisation to <name>
+  change_org <orgnamen>      Change current organisation to <orgname> for the current user
+  list_datasources           List the datasources for the current org. 
+  delete_datasource <name>   Delete datsource with <name> from current org.       
+  add_datasource <file>      Add datsource from json <file> to current org.       
+  create_org <name>          Create new organisation with <name>
+  delete_org <name>          Delete organisation with <name>
+  list_orgs                  List all organisations in this grafana instance
+  
+There is no default behavior. 
+END_HELP
+
+my %opt
+  = (
+     'credentials' => undef,
+     'grafana-url' => "https://test-grafana.uio.no",
+     'help'        => 0,
+     'debug'       => 0,
+    );
+
+GetOptions('c|crendential=s'       => \$opt{credentials},
+           'u|"grafana-url"=s'     => \$opt{"grafana-url"},
+           'help'                  => \$opt{help},
+           'debug'                 => \$opt{debug},
+          ) or do { print $USAGE; exit 1 };
+
+sub make_json {
+  # struct
+  my $data = shift;
+  my $json = encode_json($data);
+  print $json if $opt{debug};
+  return $json;
+}
+
+sub readfile {
+  my $file = shift;
+  open my $fh, "<", $file or die "could not open $file: $! \n";
+  my $content = do { local $/ = undef; <$fh> };
+  close $fh;
+  return $content;
+}
+
+sub read_credentials_file {
+    my $file = shift;
+    open my $F, '<', $file
+      or croak "Couldn't open file $file: $!\n";
+    while (my $line = <$F>) {
+        if ($line =~ m{\A username \s* = \s* (\S+) .* \z}xms) {
+            $grafana_user = $1;
+        }
+        if ($line =~ m{\A password \s* = \s* (\S+) .* \z}xms) {
+            $grafana_pass = $1;
+        }
+    }
+    close $F
+      or croak "Couldn't close filehandle for $file: $!\n";
+    return;
+}
+
+sub grafana_api {
+  # Args: method (PUT,GET,POST), endpoint (api/datasource....), json-data
+  my $method = uc shift; 
+  my $endpoint = shift; 
+  my $json = shift;
+  my $req = HTTP::Request->new($method,"$opt{'grafana-url'}/$endpoint");
+  $req->header('Content-Type' => 'application/json');
+  $req->content($json) if $json;
+  $req->authorization_basic($grafana_user, $grafana_pass);
+  my $ua = LWP::UserAgent->new;
+  my $resp = $ua->request($req);
+  my $status_line = $resp->status_line;
+  if ($status_line =~ /200/) {
+    my $data = $resp->decoded_content;
+    my $result = decode_json($data);
+    return $result;
+  } else {
+    print "Error: $status_line \n"
+  }
+}
+
+sub list_array {
+  my $d = shift; 
+  my @fields = @_;
+  foreach my $org ( @{$d}) {
+    my $c = 0;
+    foreach my $f ( @fields ) {
+      if ( $c eq $#fields ) {
+        print "$f: $org->{$f} ";
+      } else {
+        print "$f: $org->{$f}, ";
+      }
+      $c++;
+    }
+    print "\n";
+  }
+}
+
+sub printhashref {
+  my $d = shift;
+  if( ref($d) eq "HASH") {
+    foreach my $k (keys %{$d}) {
+      print "$k:$d->{$k}\n";
+    }
+  }
+}
+
+
+if ($opt{help}) {
+    print $USAGE, $HELP;
+    exit 0;
+}
+
+if (defined $opt{credentials}) {
+  read_credentials_file($opt{credentials});
+} else {
+  print "No credentials file given\n";
+  exit 1;
+}  
+
+if (!defined $grafana_user || !defined $grafana_pass) {
+    croak "ERROR: Need Nivlheim credentials\n";
+}
+
+my $orgs = grafana_api("get","api/orgs");
+my $datasources = grafana_api("get","api/datasources");
+my %org_ids = map {$_->{"name"} => $_->{"id"}}  @{$orgs};
+my %datasource_ids = map {$_->{"name"} => $_->{"id"}}  @{$datasources};
+
+my $cmd = $ARGV[0];
+my $res;
+
+switch ($cmd) {
+  case "get_org"          { $res = grafana_api("get","api/org"); print "$res->{'name'}\n" }
+  case "rename_current_org"       { 
+    my $json = "{ \"name\": \"$ARGV[1]\" }";
+    $res = grafana_api("put","api/org",$json); 
+    printhashref($res) if $res;
+  }
+  case "delete_org" {
+    if ( $org_ids{$ARGV[1]} ) { 
+      $res = grafana_api("delete","api/orgs/$org_ids{$ARGV[1]}"); 
+      printhashref($res) if $res;
+    } else {
+      print "Organisation \"$ARGV[1]\" does not exist\n";
+    }
+  }
+  case "create_org" {
+    if ( $org_ids{$ARGV[1]} ) { 
+      print "Organisation \"$ARGV[1]\" exists\n";
+    } else {
+      my $json = "{ \"name\": \"$ARGV[1]\" }";
+      $res = grafana_api("post","api/orgs",$json); 
+      printhashref($res) if $res;
+    }
+  }
+  case "delete_datasource" {
+    if ( $datasource_ids{$ARGV[1]} ) { 
+      $res = grafana_api("delete","api/datasources/$datasource_ids{$ARGV[1]}"); 
+      printhashref($res) if $res;
+    } else {
+      print "Datasource \"$ARGV[1]\" does not exist\n";
+    }
+  }
+  case "add_datasource"       { 
+    if ($ARGV[1]  && -f $ARGV[1]) {
+      my $json = readfile($ARGV[1]);
+      decode_json $json; # Catch obvious errors in input data.  
+      $res = grafana_api("post","api/datasources",$json); 
+      printhashref($res) if $res;
+    } else { 
+      print "Give me a json file describing the datasource to be added\n";
+    } 
+  }
+  case "change_org"       { 
+    if ($org_ids{$ARGV[1]}) {
+      $res = grafana_api("post","api/user/using/$org_ids{$ARGV[1]}"); 
+      printhashref($res) if $res;
+    } else { 
+      print "No such org: $ARGV[1]\n";
+    } 
+  }
+  case "list_datasources" { $res = grafana_api("get","api/datasources"); list_array($res,"name","type","isDefault","url") }
+  case "list_orgs"        { $res = list_array($orgs,"name","id") }
+  else                    { print "previous case not true" }
+}
+

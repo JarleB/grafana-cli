@@ -13,7 +13,7 @@ use Switch;
 
 # Usage info
 Readonly my $USAGE => <<"END_USAGE";
-Usage: $0 [OPTION]
+Usage: $0 [OPTION] [COMMAND]
 END_USAGE
 
 my $grafana_user = undef;
@@ -31,7 +31,7 @@ OPTIONS:
 COMMANDS
   get_org                    Get the current organisation for the current user
   rename_current_org <name>  Rename the current organisation to <name>
-  change_org <orgnamen>      Change current organisation to <orgname> for the current user
+  change_org <orgname>       Change current organisation to <orgname> for the current user
   list_datasources           List the datasources for the current org. 
   delete_datasource <name>   Delete datsource with <name> from current org.       
   add_datasource <file>      Add datsource from json <file> to current org.       

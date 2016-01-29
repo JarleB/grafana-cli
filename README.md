@@ -5,8 +5,8 @@ Grafana CLI simplify manipulation of organisations and datasources by using the
 Grafana API.
 
 ```
-$ ./scripts/grafana-cli --help 
-Usage: ./scripts/grafana-cli [OPTION]
+$ grafana-cli --help 
+Usage: grafana-cli [OPTION] [COMMAND]
 
 OPTIONS:
   -c, --credentials=<filename> 
@@ -15,7 +15,7 @@ OPTIONS:
 COMMANDS
   get_org                    Get the current organisation for the current user
   rename_current_org <name>  Rename the current organisation to <name>
-  change_org <orgnamen>      Change current organisation to <orgname> for the current user
+  change_org <orgname>       Change current organisation to <orgname> for the current user
   list_datasources           List the datasources for the current org. 
   delete_datasource <name>   Delete datsource with <name> from current org.       
   add_datasource <file>      Add datsource from json <file> to current org.       
